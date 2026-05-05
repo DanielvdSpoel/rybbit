@@ -26,6 +26,7 @@ import { useGetSiteImports, useCreateSiteImport, useDeleteSiteImport } from "@/a
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { IS_CLOUD } from "@/lib/const";
 import { CsvParser } from "@/lib/import/csvParser";
+import { PlausibleCsvParser } from "@/lib/import/plausibleParser";
 import { ImportPlatform } from "@/types/import";
 import { DisabledOverlay } from "@/components/DisabledOverlay";
 
@@ -35,8 +36,6 @@ interface ImportManagerProps {
 }
 
 const CONFIRM_THRESHOLD = 100 * 1024 * 1024;
-const ALLOWED_FILE_TYPES = ["text/csv"];
-const ALLOWED_EXTENSIONS = [".csv"];
 
 function formatFileSize(bytes: number): string {
   const sizeInMB = bytes / 1024 / 1024;
@@ -53,6 +52,7 @@ function formatPlatformName(platform: ImportPlatform): string {
   const platformNames: Record<ImportPlatform, string> = {
     umami: "Umami",
     simple_analytics: "Simple Analytics",
+    plausible: "Plausible",
   };
   return platformNames[platform];
 }
@@ -65,16 +65,22 @@ export function ImportManager({ siteId, disabled }: ImportManagerProps) {
   const [selectedPlatform, setSelectedPlatform] = useState<ImportPlatform | "">("");
   const [fileError, setFileError] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const workerManagerRef = useRef<CsvParser | null>(null);
+  const workerManagerRef = useRef<CsvParser | PlausibleCsvParser | null>(null);
 
-  function validateFile(file: File | null): string {
+  function validateFile(file: File | null, platform: ImportPlatform | ""): string {
     if (!file) {
       return t("Please select a file");
     }
 
     const extension = "." + file.name.split(".").pop()?.toLowerCase();
-    if (!ALLOWED_EXTENSIONS.includes(extension) && !ALLOWED_FILE_TYPES.includes(file.type)) {
-      return t("Only CSV files are accepted");
+    if (platform === "plausible") {
+      if (extension !== ".zip" && !["application/zip", "application/x-zip-compressed"].includes(file.type)) {
+        return t("Please upload a ZIP file exported from Plausible");
+      }
+    } else {
+      if (extension !== ".csv" && file.type !== "text/csv") {
+        return t("Only CSV files are accepted");
+      }
     }
 
     return "";
@@ -93,7 +99,7 @@ export function ImportManager({ siteId, disabled }: ImportManagerProps) {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     setSelectedFile(file);
-    setFileError(validateFile(file));
+    setFileError(validateFile(file, selectedPlatform));
   };
 
   const onSubmit = (e: React.FormEvent) => {
@@ -116,15 +122,28 @@ export function ImportManager({ siteId, disabled }: ImportManagerProps) {
         onSuccess: response => {
           const { importId, allowedDateRange } = response.data;
 
-          workerManagerRef.current = new CsvParser(
-            siteId,
-            importId,
-            selectedPlatform,
-            allowedDateRange.earliestAllowedDate,
-            allowedDateRange.latestAllowedDate
-          );
-
-          workerManagerRef.current.startImport(selectedFile);
+          if (selectedPlatform === "plausible") {
+            const parser = new PlausibleCsvParser(
+              siteId,
+              importId,
+              allowedDateRange.earliestAllowedDate,
+              allowedDateRange.latestAllowedDate
+            );
+            workerManagerRef.current = parser;
+            parser.startImport(selectedFile).catch((err) => {
+              console.error("Plausible import failed:", err);
+            });
+          } else {
+            const parser = new CsvParser(
+              siteId,
+              importId,
+              selectedPlatform,
+              allowedDateRange.earliestAllowedDate,
+              allowedDateRange.latestAllowedDate
+            );
+            workerManagerRef.current = parser;
+            parser.startImport(selectedFile);
+          }
 
           setSelectedFile(null);
           setSelectedPlatform("");
@@ -207,7 +226,9 @@ export function ImportManager({ siteId, disabled }: ImportManagerProps) {
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  {t("You have an active import in progress. Please wait for it to complete before starting a new import.")}
+                  {t(
+                    "You have an active import in progress. Please wait for it to complete before starting a new import."
+                  )}
                 </AlertDescription>
               </Alert>
             )}
@@ -216,13 +237,24 @@ export function ImportManager({ siteId, disabled }: ImportManagerProps) {
               {/* Platform Selection */}
               <div className="space-y-2">
                 <Label htmlFor="platform">{t("Platform")}</Label>
-                <Select value={selectedPlatform} onValueChange={(value: ImportPlatform) => setSelectedPlatform(value)}>
+                <Select
+                  value={selectedPlatform}
+                  onValueChange={(value: ImportPlatform) => {
+                    setSelectedPlatform(value);
+                    setSelectedFile(null);
+                    setFileError("");
+                    if (fileInputRef.current) {
+                      fileInputRef.current.value = "";
+                    }
+                  }}
+                >
                   <SelectTrigger id="platform" disabled={disabled || createImportMutation.isPending || hasActiveImport}>
                     <SelectValue placeholder={t("Select platform")} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="umami">Umami</SelectItem>
                     <SelectItem value="simple_analytics">Simple Analytics</SelectItem>
+                    <SelectItem value="plausible">Plausible</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -231,13 +263,13 @@ export function ImportManager({ siteId, disabled }: ImportManagerProps) {
               <div className="space-y-2">
                 <Label htmlFor="file" className="flex items-center gap-2">
                   <FileText className="h-4 w-4" />
-                  {t("CSV File")}
+                  {selectedPlatform === "plausible" ? t("ZIP File") : t("CSV File")}
                 </Label>
                 <Input
                   ref={fileInputRef}
                   id="file"
                   type="file"
-                  accept=".csv"
+                  accept={selectedPlatform === "plausible" ? ".zip" : ".csv"}
                   multiple={false}
                   onChange={handleFileChange}
                   disabled={disabled || createImportMutation.isPending || hasActiveImport}
@@ -302,7 +334,9 @@ export function ImportManager({ siteId, disabled }: ImportManagerProps) {
             ) : error ? (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{t("Failed to load import history. Please try refreshing the page.")}</AlertDescription>
+                <AlertDescription>
+                  {t("Failed to load import history. Please try refreshing the page.")}
+                </AlertDescription>
               </Alert>
             ) : !data?.data?.length ? (
               <div className="text-center py-8 text-muted-foreground">
@@ -412,7 +446,10 @@ export function ImportManager({ siteId, disabled }: ImportManagerProps) {
             <AlertDialogHeader>
               <AlertDialogTitle>{t("Confirm Large File Import")}</AlertDialogTitle>
               <AlertDialogDescription>
-                {t("You're about to import a large file ({size}). This may take several minutes to process. Are you sure you want to continue?", { size: selectedFile ? formatFileSize(selectedFile.size) : "?" })}
+                {t(
+                  "You're about to import a large file ({size}). This may take several minutes to process. Are you sure you want to continue?",
+                  { size: selectedFile ? formatFileSize(selectedFile.size) : "?" }
+                )}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -428,7 +465,9 @@ export function ImportManager({ siteId, disabled }: ImportManagerProps) {
             <AlertDialogHeader>
               <AlertDialogTitle>{t("Delete Import")}</AlertDialogTitle>
               <AlertDialogDescription>
-                {t("Are you sure you want to delete this import? This action cannot be undone. The imported data will be permanently removed.")}
+                {t(
+                  "Are you sure you want to delete this import? This action cannot be undone. The imported data will be permanently removed."
+                )}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

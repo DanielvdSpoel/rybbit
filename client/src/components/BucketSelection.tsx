@@ -13,6 +13,8 @@ export function BucketSelection() {
 
   const getOptions = (time: Time) => {
     if (time.mode === "past-minutes") {
+      const timeDiff = time.pastMinutesStart - (time.pastMinutesEnd ?? 0);
+
       if (time.pastMinutesStart >= 1440) {
         return (
           <SelectContent>
@@ -31,7 +33,7 @@ export function BucketSelection() {
           </SelectContent>
         );
       }
-      if (time.pastMinutesStart >= 360) {
+      if (timeDiff > 120) {
         return (
           <SelectContent>
             <SelectItem size="sm" value="hour">
@@ -114,7 +116,7 @@ export function BucketSelection() {
     }
 
     if (time.mode === "range") {
-      const timeRangeLength = DateTime.fromISO(time.endDate).diff(DateTime.fromISO(time.startDate), "days").days;
+      const timeRangeLength = DateTime.fromISO(time.endDate).diff(DateTime.fromISO(time.startDate), "days").days + 1;
 
       return (
         <SelectContent>
@@ -138,7 +140,7 @@ export function BucketSelection() {
               {t("Hour")}
             </SelectItem>
           )}
-          {timeRangeLength > 1 && (
+          {timeRangeLength >= 1 && (
             <SelectItem size="sm" value="day">
               {t("Day")}
             </SelectItem>

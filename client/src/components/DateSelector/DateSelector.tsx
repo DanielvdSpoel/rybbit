@@ -92,15 +92,20 @@ export function DateSelector({
         const start = DateTime.fromISO(`${time.startDate}T${time.startTime}`, { zone: tz });
         const endExclusive = DateTime.fromISO(`${time.endDate}T${time.endTime}`, { zone: tz });
         const displayEnd = stepDateTimeBucket(endExclusive, bucket, -1);
+        const end = displayEnd > start ? displayEnd : endExclusive;
         const startFormatted = start.toFormat(hour12 ? "MMM d, h:mm a" : "MMM d, HH:mm");
-        const endFormatted = (displayEnd > start ? displayEnd : endExclusive).toFormat(
-          hour12 ? "MMM d, h:mm a" : "MMM d, HH:mm"
-        );
+        const endFormatted =
+          start.toISODate() === end.toISODate()
+            ? end.toFormat(hour12 ? "h:mm a" : "HH:mm")
+            : end.toFormat(hour12 ? "MMM d, h:mm a" : "MMM d, HH:mm");
         return `${startFormatted} - ${endFormatted}`;
       }
 
-      const startFormatted = DateTime.fromISO(time.startDate).toFormat("EEEE, MMM d");
-      const endFormatted = DateTime.fromISO(time.endDate).toFormat("EEEE, MMM d");
+      const start = DateTime.fromISO(time.startDate);
+      const end = DateTime.fromISO(time.endDate);
+      const startFormatted = start.toFormat("EEEE, MMM d");
+      if (start.toISODate() === end.toISODate()) return startFormatted;
+      const endFormatted = end.toFormat("EEEE, MMM d");
       return `${startFormatted} - ${endFormatted}`;
     }
 

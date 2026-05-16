@@ -30,6 +30,7 @@ interface GeneralTabProps {
   siteMetadata: SiteResponse;
   disabled?: boolean;
   onClose?: () => void;
+  onPublicChange?: (checked: boolean) => void;
 }
 
 interface ToggleConfig {
@@ -44,7 +45,7 @@ interface ToggleConfig {
   badge?: ReactNode;
 }
 
-export function GeneralTab({ siteMetadata, disabled = false, onClose }: GeneralTabProps) {
+export function GeneralTab({ siteMetadata, disabled = false, onClose, onPublicChange }: GeneralTabProps) {
   const t = useExtracted();
   const { refetch } = useGetSitesFromOrg(siteMetadata?.organizationId ?? "");
   const router = useRouter();
@@ -74,6 +75,9 @@ export function GeneralTab({ siteMetadata, disabled = false, onClose }: GeneralT
       try {
         await updateSiteConfig(siteMetadata.siteId, { [key]: checked });
         setToggleStates(prev => ({ ...prev, [key]: checked }));
+        if (key === "public") {
+          onPublicChange?.(checked);
+        }
         const message = successMessage
           ? checked
             ? successMessage.enabled
@@ -89,7 +93,7 @@ export function GeneralTab({ siteMetadata, disabled = false, onClose }: GeneralT
         setLoadingStates(prev => ({ ...prev, [key]: false }));
       }
     },
-    [siteMetadata.siteId, refetch]
+    [siteMetadata.siteId, refetch, onPublicChange]
   );
 
   const handleNameChange = async () => {

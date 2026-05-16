@@ -3,14 +3,20 @@
 import { useQueryState, parseAsBoolean } from "nuqs";
 import { useCurrentSite } from "../../api/admin/hooks/useSites";
 
-export const useEmbedablePage = () => {
+export const useEmbedPageOptions = () => {
   const [embed] = useQueryState("embed", parseAsBoolean);
+  const [hideSidebar] = useQueryState("hideSidebar", parseAsBoolean);
 
   const { subscription } = useCurrentSite();
 
-  if (embed && subscription?.planName !== "free") {
-    return true;
-  }
+  const isEmbedPage = !!embed && subscription?.planName !== "free";
 
-  return false;
+  return {
+    embed: isEmbedPage,
+    hideSidebar: isEmbedPage && !!hideSidebar,
+  };
+};
+
+export const useEmbedablePage = () => {
+  return useEmbedPageOptions().embed;
 };

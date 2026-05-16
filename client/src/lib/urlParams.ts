@@ -298,7 +298,7 @@ export const useSyncStateWithUrl = () => {
       }
     }
 
-    // Note: embed param is automatically preserved by nuqs
+    // Note: embed params are automatically preserved by nuqs
     setUrlParams(newParams);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally omit pathname to avoid interfering with soft navigation
   }, [time, bucket, selectedStat, filters, site, setUrlParams, shouldSyncUrl]);

@@ -119,4 +119,5 @@ export const analyticsParsers = {
 
   // Feature flags
   embed: parseAsBoolean,
+  hideSidebar: parseAsBoolean,
 };

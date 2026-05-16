@@ -17,6 +17,7 @@ interface EmbedTabProps {
 }
 
 const DEFAULT_ACCENT = "#10b981";
+type OutputTab = "preview" | "code";
 
 function useTimeWindows() {
   const t = useExtracted();
@@ -56,7 +57,7 @@ export function EmbedTab({ siteMetadata, embedEnabled }: EmbedTabProps) {
   const [width, setWidth] = useState(360);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [accent, setAccent] = useState<string>(DEFAULT_ACCENT);
-  const [outputTab, setOutputTab] = useState<"preview" | "code">("preview");
+  const [widgetOutputTab, setWidgetOutputTab] = useState<OutputTab>("preview");
 
   const siteId = siteMetadata.siteId;
   const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -97,9 +98,14 @@ export function EmbedTab({ siteMetadata, embedEnabled }: EmbedTabProps) {
 ></iframe>`;
 
   return (
-    <div className="space-y-6">
-
-      <div className="space-y-2">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h5 className="text-xs font-semibold text-foreground uppercase tracking-wide">{t("Live Visitor Widget")}</h5>
+          <p className="text-xs text-muted-foreground mt-1">
+            {t("Embed a compact live visitor widget on another site.")}
+          </p>
+        </div>
         <div className="flex flex-wrap gap-1">
           {(
             [
@@ -110,10 +116,10 @@ export function EmbedTab({ siteMetadata, embedEnabled }: EmbedTabProps) {
             <button
               key={tab.key}
               type="button"
-              onClick={() => setOutputTab(tab.key)}
+              onClick={() => setWidgetOutputTab(tab.key)}
               className={cn(
                 "px-2 py-1 text-xs rounded transition-colors",
-                outputTab === tab.key
+                widgetOutputTab === tab.key
                   ? "bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100"
                   : "text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
               )}
@@ -122,39 +128,40 @@ export function EmbedTab({ siteMetadata, embedEnabled }: EmbedTabProps) {
             </button>
           ))}
         </div>
-
-        {outputTab === "preview" ? (
-          <div
-            className={`rounded-md border border-neutral-200 dark:border-neutral-800 p-4 flex ${variant === "card" ? "justify-center" : "items-center justify-center"
-              }`}
-            style={{ background: "#f5f5f5" }}
-          >
-            {embedEnabled ? (
-              <iframe
-                key={widgetUrl.toString()}
-                src={widgetUrl.toString()}
-                style={{
-                  border: 0,
-                  width: iframeWidth,
-                  height,
-                  maxWidth: "100%",
-                  background: "transparent",
-                }}
-                title="Widget preview"
-              />
-            ) : (
-              <div
-                style={{ width: iframeWidth, height, maxWidth: "100%" }}
-                className="rounded-md border border-dashed border-neutral-300 dark:border-neutral-700 flex items-center justify-center text-xs text-muted-foreground"
-              >
-                {t("Enable the embed widget to preview")}
-              </div>
-            )}
-          </div>
-        ) : (
-          <CodeSnippet language="HTML" code={iframeCode} />
-        )}
       </div>
+
+      {widgetOutputTab === "preview" ? (
+        <div
+          className={`rounded-md border border-neutral-200 dark:border-neutral-800 p-4 flex ${
+            variant === "card" ? "justify-center" : "items-center justify-center"
+          }`}
+          style={{ background: "#f5f5f5" }}
+        >
+          {embedEnabled ? (
+            <iframe
+              key={widgetUrl.toString()}
+              src={widgetUrl.toString()}
+              style={{
+                border: 0,
+                width: iframeWidth,
+                height,
+                maxWidth: "100%",
+                background: "transparent",
+              }}
+              title="Widget preview"
+            />
+          ) : (
+            <div
+              style={{ width: iframeWidth, height, maxWidth: "100%" }}
+              className="rounded-md border border-dashed border-neutral-300 dark:border-neutral-700 flex items-center justify-center text-xs text-muted-foreground"
+            >
+              {t("Enable the embed widget to preview")}
+            </div>
+          )}
+        </div>
+      ) : (
+        <CodeSnippet language="HTML" code={iframeCode} />
+      )}
 
       <fieldset
         disabled={!embedEnabled}
@@ -294,8 +301,6 @@ export function EmbedTab({ siteMetadata, embedEnabled }: EmbedTabProps) {
             </div>
           </div>
         )}
-
-
       </fieldset>
     </div>
   );

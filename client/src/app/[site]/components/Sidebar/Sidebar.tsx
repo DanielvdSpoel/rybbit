@@ -23,7 +23,7 @@ import { useGetSite } from "../../../../api/admin/hooks/useSites";
 import { Sidebar as SidebarComponents } from "../../../../components/sidebar/Sidebar";
 import { SiteSettings } from "../../../../components/SiteSettings/SiteSettings";
 import { IS_CLOUD } from "../../../../lib/const";
-import { useEmbedablePage } from "../../utils";
+import { useEmbedPageOptions } from "../../utils";
 import { SiteSelector } from "./SiteSelector";
 import { useStripeSubscription } from "../../../../lib/subscription/useStripeSubscription";
 
@@ -31,9 +31,11 @@ function SidebarContent() {
   const t = useExtracted();
   const { data: subscription, isLoading: isSubscriptionLoading } = useStripeSubscription();
   const pathname = usePathname();
-  const embed = useEmbedablePage();
+  const { embed, hideSidebar } = useEmbedPageOptions();
 
   const { data: site } = useGetSite(Number(pathname.split("/")[1]));
+
+  if (hideSidebar) return null;
 
   // Check which tab is active based on the current path
   const getTabPath = (tabName: string) => {

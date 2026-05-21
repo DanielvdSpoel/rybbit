@@ -145,8 +145,8 @@ export function PerformanceChart() {
     return {
       current: chartSeries[0]?.data ?? [],
       chartSeries,
-      chartMin: boundsMin ?? dataMin,
-      chartMax: boundsMax ?? dataMax ?? now.toJSDate(),
+      chartMin: dataMin ?? boundsMin,
+      chartMax: dataMax ?? boundsMax ?? now.toJSDate(),
       max,
     };
   }, [bucket, selectedPerformanceMetric, time, timeSeriesData, timezone, visiblePercentiles]);

@@ -56,8 +56,8 @@ export function BotChart() {
 
     return {
       current: points,
-      chartMin: boundsMin ?? dataMin,
-      chartMax: boundsMax ?? dataMax ?? now.toJSDate(),
+      chartMin: dataMin ?? boundsMin,
+      chartMax: dataMax ?? boundsMax ?? now.toJSDate(),
       max: points.reduce((largest, point) => Math.max(largest, point.y), 0),
     };
   }, [bucket, time, timeSeriesData, timezone]);

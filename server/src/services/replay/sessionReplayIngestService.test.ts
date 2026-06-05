@@ -31,8 +31,8 @@ vi.mock("../userId/userIdService.js", () => ({
   },
 }));
 
-vi.mock("../storage/r2StorageService.js", () => ({
-  r2Storage: {
+vi.mock("../storage/s3StorageService.js", () => ({
+  objectStorage: {
     isEnabled: () => mocks.r2Enabled,
     storeBatch: mocks.storeBatch,
   },

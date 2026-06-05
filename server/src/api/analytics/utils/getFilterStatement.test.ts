@@ -418,4 +418,63 @@ describe("getFilterStatement", () => {
       expect(result.match(/AND/g)?.length).toBe(3);
     });
   });
+
+  describe("Custom event properties (properties: prefix)", () => {
+    it("should map properties:<key> to props['<key>'] in SQL", () => {
+      expect(getSqlParam("properties:category_id" as FilterParameter)).toBe("props['category_id']");
+      expect(getSqlParam("properties:vendor_id" as FilterParameter)).toBe("props['vendor_id']");
+    });
+
+    it("should accept properties: in a filter and emit JSON-key SQL", () => {
+      const filters = JSON.stringify([{ parameter: "properties:category_id", type: "equals", value: ["17"] }]);
+      const result = getFilterStatement(filters);
+      expect(result).toBe("AND props['category_id'] = '17'");
+    });
+
+    it("should support contains on a properties key", () => {
+      const filters = JSON.stringify([{ parameter: "properties:product_name", type: "contains", value: ["widget"] }]);
+      const result = getFilterStatement(filters);
+      expect(result).toBe("AND props['product_name'] LIKE '%widget%'");
+    });
+
+    it("should support numeric comparisons via ClickHouse JSON coercion", () => {
+      // Numeric-looking values are emitted as bare numeric SQL operands (no quotes)
+      // so ClickHouse performs a numeric comparison rather than a lexical one.
+      const filters = JSON.stringify([{ parameter: "properties:price", type: "greater_than", value: ["50"] }]);
+      const result = getFilterStatement(filters);
+      expect(result).toBe("AND props['price'] > 50");
+    });
+
+    it("should reject keys containing characters outside [A-Za-z0-9_.-]", () => {
+      expect(() => getSqlParam("properties:foo'; DROP TABLE--" as FilterParameter)).toThrow(
+        "properties key contains unsupported characters"
+      );
+      expect(() => getSqlParam("properties:foo bar" as FilterParameter)).toThrow();
+      expect(() => getSqlParam("properties:" as FilterParameter)).toThrow();
+    });
+
+    it("should reject unsafe properties keys at validation time", () => {
+      const filters = JSON.stringify([{ parameter: "properties:foo'; DROP TABLE--", type: "equals", value: ["x"] }]);
+      expect(() => getFilterStatement(filters)).toThrow();
+    });
+
+    it("should allow dot and dash in property keys", () => {
+      expect(getSqlParam("properties:plan.tier" as FilterParameter)).toBe("props['plan.tier']");
+      expect(getSqlParam("properties:cohort-id" as FilterParameter)).toBe("props['cohort-id']");
+    });
+  });
+
+  describe("url_param: prefix safety", () => {
+    it("should reject url_param keys with unsafe characters", () => {
+      expect(() => getSqlParam("url_param:foo'; DROP--" as FilterParameter)).toThrow(
+        "url_param key contains unsupported characters"
+      );
+    });
+
+    it("should accept url_param: through end-to-end validation", () => {
+      const filters = JSON.stringify([{ parameter: "url_param:campaign_id", type: "equals", value: ["abc"] }]);
+      const result = getFilterStatement(filters);
+      expect(result).toBe("AND url_parameters['campaign_id'] = 'abc'");
+    });
+  });
 });

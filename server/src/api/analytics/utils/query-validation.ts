@@ -252,9 +252,9 @@ const filterTypeSchema = z.enum([
 ]);
 
 /**
- * Schema for filter parameter values
+ * Closed enum of column-backed filter parameters (no prefix).
  */
-const baseFilterParamSchema = z.enum([
+export const filterParamEnum = z.enum([
   "browser",
   "operating_system",
   "language",
@@ -286,9 +286,35 @@ const baseFilterParamSchema = z.enum([
   "tag",
 ]);
 
+// Restrict prefixed-key characters to a safe set. Interpolated into SQL string
+// literals (e.g. props['<key>']) so any character outside this set is rejected
+// to prevent SQL injection of the key name.
+const SAFE_KEY = /^[A-Za-z0-9_.-]+$/;
+
+const urlParamSchema = z
+  .string()
+  .refine((s) => s.startsWith("url_param:") && SAFE_KEY.test(s.slice("url_param:".length)), {
+    message: "url_param: key must match /^[A-Za-z0-9_.-]+$/",
+  });
+
+const propertiesSchema = z
+  .string()
+  .refine((s) => s.startsWith("properties:") && SAFE_KEY.test(s.slice("properties:".length)), {
+    message: "properties: key must match /^[A-Za-z0-9_.-]+$/",
+  });
+
+/**
+ * Schema for filter parameter values. Accepts the closed enum plus prefixed-key
+ * patterns:
+ *   - "feature_flag:<key>" → feature_flags['<key>']
+ *   - "url_param:<key>" → url_parameters['<key>']
+ *   - "properties:<key>" → props['<key>']
+ */
 export const filterParamSchema: z.ZodType<FilterParameter> = z.union([
-  baseFilterParamSchema,
+  filterParamEnum,
   z.string().regex(/^feature_flag:[A-Za-z][A-Za-z0-9_.:-]{0,99}$/),
+  urlParamSchema,
+  propertiesSchema,
 ]) as z.ZodType<FilterParameter>;
 
 /**

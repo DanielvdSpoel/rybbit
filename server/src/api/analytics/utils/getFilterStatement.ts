@@ -1,6 +1,18 @@
 import SqlString from "sqlstring";
-import { filterParamSchema, validateFilters } from "./query-validation.js";
+import { filterParamEnum, validateFilters } from "./query-validation.js";
 import { FilterParameter, FilterType } from "../types.js";
+
+// Defense-in-depth: keys are also SqlString.escape'd before interpolation, but
+// validation already rejects unsafe keys and re-checking here means anyone
+// constructing filters in-process gets a clear error instead of a silently
+// escaped (and never-matching) key name.
+const SAFE_KEY = /^[A-Za-z0-9_.-]+$/;
+const assertSafeKey = (prefix: string, key: string) => {
+  if (!SAFE_KEY.test(key)) {
+    throw new Error(`${prefix} key contains unsupported characters`);
+  }
+  return key;
+};
 
 // Options for customizing filter behavior
 export interface FilterStatementOptions {
@@ -64,12 +76,19 @@ export const getSqlParam = (parameter: FilterParameter) => {
   if (parameter.startsWith("utm_") || parameter.startsWith("url_param:")) {
     // For explicit url_param: prefix (e.g., url_param:campaign_id)
     if (parameter.startsWith("url_param:")) {
-      const paramName = parameter.substring("url_param:".length);
+      const paramName = assertSafeKey("url_param", parameter.substring("url_param:".length));
       return `url_parameters[${SqlString.escape(paramName)}]`;
     }
 
     const utm = parameter; // e.g., utm_source, utm_medium, etc.
     return `url_parameters[${SqlString.escape(utm)}]`;
+  }
+
+  // Custom event properties stored in the JSON `props` column.
+  // e.g. properties:category_id → props['category_id']
+  if (parameter.startsWith("properties:")) {
+    const propName = assertSafeKey("properties", parameter.substring("properties:".length));
+    return `props[${SqlString.escape(propName)}]`;
   }
 
   if (parameter === "referrer") {
@@ -97,7 +116,7 @@ export const getSqlParam = (parameter: FilterParameter) => {
       ELSE concat(toString(operating_system), ' ', toString(operating_system_version))
     END`;
   }
-  return filterParamSchema.parse(parameter);
+  return filterParamEnum.parse(parameter);
 };
 
 export function getFilterStatement(

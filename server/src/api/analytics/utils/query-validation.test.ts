@@ -390,8 +390,18 @@ describe("filterParamSchema", () => {
     expect(filterParamSchema.safeParse("BROWSER").success).toBe(false);
   });
 
-  it("rejects url_param: parameters (handled elsewhere, not part of this schema)", () => {
-    expect(filterParamSchema.safeParse("url_param:campaign_id").success).toBe(false);
+  // FORK: upstream rejects url_param: here (and never validates it end-to-end);
+  // the fork accepts url_param:/properties: with a safe-key charset so they work
+  // through the public API.
+  it("accepts url_param: and properties: parameters with safe keys", () => {
+    expect(filterParamSchema.safeParse("url_param:campaign_id").success).toBe(true);
+    expect(filterParamSchema.safeParse("properties:plan.tier").success).toBe(true);
+  });
+
+  it("rejects url_param: and properties: parameters with unsafe keys", () => {
+    expect(filterParamSchema.safeParse("url_param:foo'; DROP--").success).toBe(false);
+    expect(filterParamSchema.safeParse("properties:foo bar").success).toBe(false);
+    expect(filterParamSchema.safeParse("properties:").success).toBe(false);
   });
 
   describe("feature_flag: regex", () => {

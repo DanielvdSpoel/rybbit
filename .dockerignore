@@ -1,0 +1,23 @@
+# Dependencies — always installed fresh inside the image
+**/node_modules
+
+# Build outputs — rebuilt inside the image
+**/dist
+**/build
+**/.next
+
+# Version control / CI
+.git
+.github
+
+# Logs and local env
+*.log
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Editor / OS cruft
+.idea/
+.vscode/
+**/.DS_Store
+Thumbs.db

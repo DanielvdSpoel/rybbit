@@ -1,10 +1,6 @@
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({
-  isCloud: true,
-}));
-
 const mocks = vi.hoisted(() => ({
   clientConfigs: [] as Record<string, any>[],
   send: vi.fn(),
@@ -47,26 +43,61 @@ vi.mock("@mongodb-js/zstd", () => ({
   decompress: mocks.decompress,
 }));
 
-vi.mock("../../lib/const.js", () => ({
-  get IS_CLOUD() {
-    return state.isCloud;
-  },
-}));
-
 vi.mock("../../lib/logger/logger.js", () => ({
   createServiceLogger: () => mocks.logger,
 }));
 
-async function loadStorage(options: { cloud?: boolean; accessKey?: string; secretKey?: string; bucket?: string } = {}) {
-  state.isCloud = options.cloud ?? true;
-  vi.stubEnv("R2_ACCOUNT_ID", "account-123");
-  vi.stubEnv("R2_ACCESS_KEY_ID", options.accessKey ?? "access-key");
-  vi.stubEnv("R2_SECRET_ACCESS_KEY", options.secretKey ?? "secret-key");
-  vi.stubEnv("R2_BUCKET_NAME", options.bucket ?? "test-bucket");
+type LoadOptions = {
+  accessKey?: string;
+  secretKey?: string;
+  bucket?: string;
+  endpoint?: string;
+  region?: string;
+  forcePathStyle?: string;
+  /** Use the legacy R2_* variables instead of S3_* to exercise the fallback. */
+  legacyR2?: boolean;
+};
+
+async function loadStorage(options: LoadOptions = {}) {
+  const accessKey = options.accessKey ?? "access-key";
+  const secretKey = options.secretKey ?? "secret-key";
+  const bucket = options.bucket ?? "test-bucket";
+
+  // Neutralise both variable families first so a value leaked into
+  // process.env by another test file (workers are reused) cannot flip the
+  // resolver between the S3_* and R2_* branches.
+  for (const name of [
+    "S3_ENDPOINT",
+    "S3_ACCESS_KEY_ID",
+    "S3_SECRET_ACCESS_KEY",
+    "S3_BUCKET_NAME",
+    "S3_REGION",
+    "S3_FORCE_PATH_STYLE",
+    "R2_ACCOUNT_ID",
+    "R2_ACCESS_KEY_ID",
+    "R2_SECRET_ACCESS_KEY",
+    "R2_BUCKET_NAME",
+  ]) {
+    vi.stubEnv(name, "");
+  }
+
+  if (options.legacyR2) {
+    vi.stubEnv("R2_ACCOUNT_ID", "account-123");
+    vi.stubEnv("R2_ACCESS_KEY_ID", accessKey);
+    vi.stubEnv("R2_SECRET_ACCESS_KEY", secretKey);
+    vi.stubEnv("R2_BUCKET_NAME", bucket);
+  } else {
+    vi.stubEnv("S3_ENDPOINT", options.endpoint ?? "https://s3.example.test");
+    vi.stubEnv("S3_ACCESS_KEY_ID", accessKey);
+    vi.stubEnv("S3_SECRET_ACCESS_KEY", secretKey);
+    vi.stubEnv("S3_BUCKET_NAME", bucket);
+  }
+  if (options.region !== undefined) vi.stubEnv("S3_REGION", options.region);
+  if (options.forcePathStyle !== undefined) vi.stubEnv("S3_FORCE_PATH_STYLE", options.forcePathStyle);
   vi.resetModules();
 
-  const { r2Storage } = await import("./r2StorageService.js");
-  return r2Storage;
+  const { objectStorage } = await import("./s3StorageService.js");
+  return objectStorage;
 }
 
 // What ingestion hands storeBatch: each event's data serialized on its own.
@@ -79,7 +110,6 @@ function sentInput(call = 0): Record<string, any> {
 }
 
 beforeEach(() => {
-  state.isCloud = true;
   mocks.clientConfigs.length = 0;
   mocks.send.mockReset();
   mocks.httpHandle.mockReset();
@@ -97,13 +127,13 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("r2Storage initialization", () => {
-  it("stays disabled outside cloud and performs no storage I/O", async () => {
-    const storage = await loadStorage({ cloud: false });
+describe("objectStorage initialization", () => {
+  it("stays disabled without credentials and performs no storage I/O", async () => {
+    const storage = await loadStorage({ accessKey: "", secretKey: "" });
 
     expect(storage.isEnabled()).toBe(false);
     await expect(storage.storeBatch(1, "session", [JSON.stringify({ type: "pageview" })])).resolves.toBeNull();
-    await expect(storage.getBatch("1/session/batch.json.zst")).rejects.toThrow("R2 storage is not enabled");
+    await expect(storage.getBatch("1/session/batch.json.zst")).rejects.toThrow("S3 storage is not enabled");
     await expect(storage.deleteBatch("1/session/batch.json.zst")).resolves.toBeUndefined();
     expect(mocks.clientConfigs).toHaveLength(0);
     expect(mocks.send).not.toHaveBeenCalled();
@@ -120,18 +150,39 @@ describe("r2Storage initialization", () => {
     expect(mocks.clientConfigs).toHaveLength(0);
   });
 
-  it("configures the R2 endpoint, credentials, path-style requests, and bucket", async () => {
-    const storage = await loadStorage({ bucket: "replay-batches" });
+  it("configures the S3 endpoint, credentials, path-style requests, and bucket", async () => {
+    const storage = await loadStorage({ bucket: "replay-batches", endpoint: "https://minio.internal:9000" });
 
     expect(storage.isEnabled()).toBe(true);
     expect(mocks.clientConfigs).toHaveLength(1);
+    expect(mocks.clientConfigs[0]).toMatchObject({
+      region: "auto",
+      endpoint: "https://minio.internal:9000",
+      credentials: { accessKeyId: "access-key", secretAccessKey: "secret-key" },
+      forcePathStyle: true,
+    });
+    expect(mocks.logger.info).toHaveBeenCalledWith(
+      { bucket: "replay-batches", endpoint: "https://minio.internal:9000" },
+      "S3Storage initialized"
+    );
+  });
+
+  it("falls back to the legacy R2_* variables and derives the R2 endpoint", async () => {
+    const storage = await loadStorage({ legacyR2: true, bucket: "r2-bucket" });
+
+    expect(storage.isEnabled()).toBe(true);
     expect(mocks.clientConfigs[0]).toMatchObject({
       region: "auto",
       endpoint: "https://account-123.r2.cloudflarestorage.com",
       credentials: { accessKeyId: "access-key", secretAccessKey: "secret-key" },
       forcePathStyle: true,
     });
-    expect(mocks.logger.info).toHaveBeenCalledWith({ bucket: "replay-batches" }, "R2Storage initialized");
+  });
+
+  it("honours S3_REGION and S3_FORCE_PATH_STYLE=false for virtual-hosted AWS S3", async () => {
+    await loadStorage({ region: "eu-west-1", forcePathStyle: "false" });
+
+    expect(mocks.clientConfigs[0]).toMatchObject({ region: "eu-west-1", forcePathStyle: false });
   });
 
   it("strips checksum response headers without discarding other handler output", async () => {
@@ -159,7 +210,7 @@ describe("r2Storage initialization", () => {
   });
 });
 
-describe("r2Storage.storeBatch", () => {
+describe("objectStorage.storeBatch", () => {
   it("compresses JSON and stores it with a deterministic key and retrieval metadata", async () => {
     vi.spyOn(Date, "now").mockReturnValue(1_725_000_123_456);
     mocks.send.mockResolvedValue({});
@@ -232,17 +283,17 @@ describe("r2Storage.storeBatch", () => {
 
     await expect(storage.storeBatch(1, "session", ["{}"])).rejects.toBe(compressionError);
     expect(mocks.send).not.toHaveBeenCalled();
-    expect(console.error).toHaveBeenCalledWith("[R2Storage] Failed to store batch:", compressionError);
+    expect(console.error).toHaveBeenCalledWith("[S3Storage] Failed to store batch:", compressionError);
   });
 
   it("propagates object-store failures after compression", async () => {
-    const putError = new Error("R2 unavailable");
+    const putError = new Error("object store unavailable");
     mocks.send.mockRejectedValue(putError);
     const storage = await loadStorage();
 
     await expect(storage.storeBatch(1, "session", ["{}"])).rejects.toBe(putError);
     expect(mocks.compress).toHaveBeenCalledOnce();
-    expect(console.error).toHaveBeenCalledWith("[R2Storage] Failed to store batch:", putError);
+    expect(console.error).toHaveBeenCalledWith("[S3Storage] Failed to store batch:", putError);
   });
 
   it("allows independent stores to progress concurrently", async () => {
@@ -268,7 +319,7 @@ describe("r2Storage.storeBatch", () => {
   });
 });
 
-describe("r2Storage.getBatch", () => {
+describe("objectStorage.getBatch", () => {
   it("reads already-decompressed JSON streams without invoking a codec", async () => {
     mocks.send.mockResolvedValue({ Body: Readable.from([Buffer.from("  ["), Buffer.from('{"type":"pageview"}]')]) });
     const storage = await loadStorage();
@@ -312,7 +363,7 @@ describe("r2Storage.getBatch", () => {
 
     await expect(storage.getBatch("missing.json.zst")).rejects.toThrow("Empty response body");
     expect(console.error).toHaveBeenCalledWith(
-      "[R2Storage] Failed to retrieve batch:",
+      "[S3Storage] Failed to retrieve batch:",
       expect.objectContaining({ message: "Empty response body" })
     );
   });
@@ -324,7 +375,7 @@ describe("r2Storage.getBatch", () => {
     const storage = await loadStorage();
 
     await expect(storage.getBatch("corrupt.json.zst")).rejects.toBe(codecError);
-    expect(console.error).toHaveBeenCalledWith("[R2Storage] Failed to retrieve batch:", codecError);
+    expect(console.error).toHaveBeenCalledWith("[S3Storage] Failed to retrieve batch:", codecError);
   });
 
   it("propagates object-store read failures", async () => {
@@ -336,7 +387,7 @@ describe("r2Storage.getBatch", () => {
   });
 });
 
-describe("r2Storage.deleteBatch", () => {
+describe("objectStorage.deleteBatch", () => {
   it("deletes an enabled object's exact key", async () => {
     mocks.send.mockResolvedValue({});
     const storage = await loadStorage();
@@ -351,6 +402,6 @@ describe("r2Storage.deleteBatch", () => {
     const storage = await loadStorage();
 
     await expect(storage.deleteBatch("1/session/batch.json.zst")).resolves.toBeUndefined();
-    expect(console.error).toHaveBeenCalledWith("[R2Storage] Failed to delete batch:", deleteError);
+    expect(console.error).toHaveBeenCalledWith("[S3Storage] Failed to delete batch:", deleteError);
   });
 });

@@ -13,7 +13,7 @@ vi.mock("../../../db/postgres/postgres.js", () => ({
     delete: () => ({ where: async () => undefined }),
   },
 }));
-vi.mock("../../../services/storage/r2StorageService.js", () => ({ r2Storage: { isEnabled: () => false } }));
+vi.mock("../../../services/storage/s3StorageService.js", () => ({ objectStorage: { isEnabled: () => false } }));
 
 import { deleteUser } from "./deleteUser.js";
 

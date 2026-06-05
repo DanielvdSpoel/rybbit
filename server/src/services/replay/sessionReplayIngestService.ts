@@ -7,7 +7,7 @@ import { correctReplayClockSkew } from "./replayClockSkew.js";
 import { parseTrackingData } from "./trackingUtils.js";
 import { sessionsService } from "../sessions/sessionsService.js";
 import { userIdService } from "../userId/userIdService.js";
-import { r2Storage } from "../storage/r2StorageService.js";
+import { objectStorage } from "../storage/s3StorageService.js";
 import { siteConfig } from "../../lib/siteConfig.js";
 import { chargeReplaySessionBudget } from "./replaySessionBudget.js";
 
@@ -125,23 +125,23 @@ export class SessionReplayIngestService {
     const serializedEvents = events.map(event => JSON.stringify(event.data));
     const batchBytes = serializedEvents.reduce((total, data) => total + data.length, 0);
 
-    // Checked before the R2 upload and both inserts, so a runaway session costs
-    // one Redis call per batch once it's capped.
+    // Checked before the object storage upload and both inserts, so a runaway
+    // session costs one Redis call per batch once it's capped.
     const budget = await chargeReplaySessionBudget(siteId, sessionId, batchBytes);
     if (!budget.accepted) {
       return { capped: true };
     }
 
-    // Check if R2 storage is enabled for cloud deployments
-    let r2BatchKey: string | null = null;
+    // Offload event data to object storage when configured
+    let batchKey: string | null = null;
 
-    if (r2Storage.isEnabled()) {
+    if (objectStorage.isEnabled()) {
       try {
-        // Store event data batch in R2, reusing the strings serialized above
-        r2BatchKey = await r2Storage.storeBatch(siteId, sessionId, serializedEvents);
+        // Store event data batch in object storage, reusing the strings serialized above
+        batchKey = await objectStorage.storeBatch(siteId, sessionId, serializedEvents);
       } catch (error) {
-        console.error("Failed to store in R2, falling back to ClickHouse:", error);
-        r2BatchKey = null;
+        console.error("Failed to store in object storage, falling back to ClickHouse:", error);
+        batchKey = null;
       }
     }
 
@@ -149,8 +149,8 @@ export class SessionReplayIngestService {
     const eventsToInsert = events.map((event, index) => {
       const serializedData = serializedEvents[index];
 
-      if (r2BatchKey) {
-        // R2 storage: store metadata only in ClickHouse
+      if (batchKey) {
+        // Object storage: store metadata only in ClickHouse
         return {
           site_id: siteId,
           session_id: sessionId,
@@ -158,8 +158,8 @@ export class SessionReplayIngestService {
           identified_user_id: identifiedUserId,
           timestamp: toClickHouseDateTime(event.timestamp),
           event_type: event.type,
-          event_data: "", // Empty string when using R2
-          event_data_key: r2BatchKey,
+          event_data: "", // Empty string when using object storage
+          event_data_key: batchKey,
           batch_index: index,
           sequence_number: index,
           event_size_bytes: serializedData.length,

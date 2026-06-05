@@ -3,7 +3,7 @@ import { and, eq, or } from "drizzle-orm";
 import { clickhouse } from "../../../db/clickhouse/clickhouse.js";
 import { db } from "../../../db/postgres/postgres.js";
 import { userAliases, userProfiles } from "../../../db/postgres/schema.js";
-import { r2Storage } from "../../../services/storage/r2StorageService.js";
+import { objectStorage } from "../../../services/storage/s3StorageService.js";
 import { processResults } from "../utils/utils.js";
 
 export interface DeleteUserRequest {
@@ -15,7 +15,7 @@ export interface DeleteUserRequest {
 
 /**
  * GDPR erasure: permanently delete all analytics data for a user — events,
- * session replays (including R2-stored payloads), profile, and aliases.
+ * session replays (including object-storage payloads), profile, and aliases.
  * Accepts either an identified user ID or an anonymous device fingerprint.
  *
  * Events a linked device produced while identified as a DIFFERENT user are
@@ -50,9 +50,9 @@ export async function deleteUser(req: FastifyRequest<DeleteUserRequest>, res: Fa
       )`;
     const queryParams = { siteId, userId, deviceIds };
 
-    // Delete R2-stored replay payloads first (cloud deployments); best-effort —
-    // proceed with ClickHouse deletion even if R2 cleanup fails.
-    if (r2Storage.isEnabled()) {
+    // Delete object-storage replay payloads first (S3-compatible storage); best-effort —
+    // proceed with ClickHouse deletion even if storage cleanup fails.
+    if (objectStorage.isEnabled()) {
       try {
         const r2KeysResult = await clickhouse.query({
           query: `
@@ -65,9 +65,9 @@ export async function deleteUser(req: FastifyRequest<DeleteUserRequest>, res: Fa
           format: "JSONEachRow",
         });
         const r2Keys = await processResults<{ event_data_key: string }>(r2KeysResult);
-        await Promise.all(r2Keys.map(row => r2Storage.deleteBatch(row.event_data_key)));
+        await Promise.all(r2Keys.map(row => objectStorage.deleteBatch(row.event_data_key)));
       } catch (error) {
-        req.log.error({ err: error }, `Failed to delete R2 replay data for user ${userId}:`);
+        req.log.error({ err: error }, `Failed to delete stored replay data for user ${userId}:`);
       }
     }
 

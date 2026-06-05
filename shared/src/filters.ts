@@ -44,7 +44,9 @@ export type FilterParameter =
   | "lon"
   | "timezone"
   | "tag"
-  | `feature_flag:${string}`;
+  | `feature_flag:${string}`
+  | `url_param:${string}`
+  | `properties:${string}`;
 
 export interface Filter {
   parameter: FilterParameter;

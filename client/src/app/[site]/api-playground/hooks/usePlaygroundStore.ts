@@ -220,7 +220,17 @@ export const filterParameters = [
   { value: "lat", label: "Lat" },
   { value: "lon", label: "Lon" },
   { value: "timezone", label: "Timezone" },
+  { value: "properties:", label: "Custom Property" },
+  { value: "url_param:", label: "URL Parameter" },
+  { value: "feature_flag:", label: "Feature Flag" },
 ] satisfies { value: FilterParameter; label: string }[];
+
+// Parameter prefixes that take a free-form key (e.g. `properties:category_id`).
+// When one of these is selected the FilterBuilder shows an extra key input.
+export const filterPrefixes = ["properties:", "url_param:", "feature_flag:"] as const;
+
+export const getFilterPrefix = (parameter: string) =>
+  filterPrefixes.find(prefix => parameter.startsWith(prefix));
 
 export const filterOperators = [
   { value: "equals", label: "Equals" },

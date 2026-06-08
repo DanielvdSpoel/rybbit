@@ -420,29 +420,33 @@ describe("getFilterStatement", () => {
   });
 
   describe("Custom event properties (properties: prefix)", () => {
-    it("should map properties:<key> to props['<key>'] in SQL", () => {
-      expect(getSqlParam("properties:category_id" as FilterParameter)).toBe("props['category_id']");
-      expect(getSqlParam("properties:vendor_id" as FilterParameter)).toBe("props['vendor_id']");
+    it("should map properties:<key> to JSONExtractString on the props JSON column", () => {
+      expect(getSqlParam("properties:category_id" as FilterParameter)).toBe(
+        "JSONExtractString(toString(props), 'category_id')"
+      );
+      expect(getSqlParam("properties:vendor_id" as FilterParameter)).toBe(
+        "JSONExtractString(toString(props), 'vendor_id')"
+      );
     });
 
     it("should accept properties: in a filter and emit JSON-key SQL", () => {
       const filters = JSON.stringify([{ parameter: "properties:category_id", type: "equals", value: ["17"] }]);
       const result = getFilterStatement(filters);
-      expect(result).toBe("AND props['category_id'] = '17'");
+      expect(result).toBe("AND JSONExtractString(toString(props), 'category_id') = '17'");
     });
 
     it("should support contains on a properties key", () => {
       const filters = JSON.stringify([{ parameter: "properties:product_name", type: "contains", value: ["widget"] }]);
       const result = getFilterStatement(filters);
-      expect(result).toBe("AND props['product_name'] LIKE '%widget%'");
+      expect(result).toBe("AND JSONExtractString(toString(props), 'product_name') LIKE '%widget%'");
     });
 
-    it("should support numeric comparisons via ClickHouse JSON coercion", () => {
-      // Numeric-looking values are emitted as bare numeric SQL operands (no quotes)
-      // so ClickHouse performs a numeric comparison rather than a lexical one.
+    it("should coerce properties to a number for numeric comparisons", () => {
+      // props are extracted as String, so they're wrapped in toFloat64OrNull before
+      // comparing numerically (ClickHouse rejects String <op> Int).
       const filters = JSON.stringify([{ parameter: "properties:price", type: "greater_than", value: ["50"] }]);
       const result = getFilterStatement(filters);
-      expect(result).toBe("AND props['price'] > 50");
+      expect(result).toBe("AND toFloat64OrNull(JSONExtractString(toString(props), 'price')) > 50");
     });
 
     it("should reject keys containing characters outside [A-Za-z0-9_.-]", () => {
@@ -459,8 +463,12 @@ describe("getFilterStatement", () => {
     });
 
     it("should allow dot and dash in property keys", () => {
-      expect(getSqlParam("properties:plan.tier" as FilterParameter)).toBe("props['plan.tier']");
-      expect(getSqlParam("properties:cohort-id" as FilterParameter)).toBe("props['cohort-id']");
+      expect(getSqlParam("properties:plan.tier" as FilterParameter)).toBe(
+        "JSONExtractString(toString(props), 'plan.tier')"
+      );
+      expect(getSqlParam("properties:cohort-id" as FilterParameter)).toBe(
+        "JSONExtractString(toString(props), 'cohort-id')"
+      );
     });
   });
 

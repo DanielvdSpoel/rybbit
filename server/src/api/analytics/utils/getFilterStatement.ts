@@ -85,10 +85,13 @@ export const getSqlParam = (parameter: FilterParameter) => {
   }
 
   // Custom event properties stored in the JSON `props` column.
-  // e.g. properties:category_id → props['category_id']
+  // `props` is a ClickHouse JSON column, so bracket access (props['key']) compiles
+  // to arrayElement and fails. Use JSONExtractString(toString(props), 'key') —
+  // the same access pattern used for props everywhere else (errors, funnels, goals).
+  // e.g. properties:category_id → JSONExtractString(toString(props), 'category_id')
   if (parameter.startsWith("properties:")) {
     const propName = assertSafeKey("properties", parameter.substring("properties:".length));
-    return `props[${SqlString.escape(propName)}]`;
+    return `JSONExtractString(toString(props), ${SqlString.escape(propName)})`;
   }
 
   if (parameter === "referrer") {
@@ -340,7 +343,13 @@ export function getFilterStatement(
           if (isNaN(numericValue)) {
             throw new Error(`Invalid numeric value for ${filter.type} filter: ${filter.value[0]}`);
           }
-          return `${getSqlParam(filter.parameter)} ${filterTypeToOperator(filter.type)} ${numericValue}`;
+          // Properties are extracted as String from the JSON column, so coerce to a
+          // number before comparing (ClickHouse rejects String <op> Int). Non-numeric
+          // values become NULL and are excluded by the comparison.
+          const operand = filter.parameter.startsWith("properties:")
+            ? `toFloat64OrNull(${getSqlParam(filter.parameter)})`
+            : getSqlParam(filter.parameter);
+          return `${operand} ${filterTypeToOperator(filter.type)} ${numericValue}`;
         }
 
         if (filter.type === "starts_with" || filter.type === "ends_with") {

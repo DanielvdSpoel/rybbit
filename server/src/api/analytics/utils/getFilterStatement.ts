@@ -181,10 +181,13 @@ export const getSqlParam = (parameter: FilterParameter) => {
   }
 
   // Custom event properties stored in the JSON `props` column.
-  // e.g. properties:category_id → props['category_id']
+  // `props` is a ClickHouse JSON column, so bracket access (props['key']) compiles
+  // to arrayElement and fails. Use JSONExtractString(toString(props), 'key') —
+  // the same access pattern used for props everywhere else (errors, funnels, goals).
+  // e.g. properties:category_id → JSONExtractString(toString(props), 'category_id')
   if (parameter.startsWith("properties:")) {
     const propName = assertSafeKey("properties", parameter.substring("properties:".length));
-    return `props[${SqlString.escape(propName)}]`;
+    return `JSONExtractString(toString(props), ${SqlString.escape(propName)})`;
   }
 
   if (parameter === "referrer") {
@@ -241,8 +244,17 @@ const assertFilterTypeCompatible = (
   values: (string | number)[]
 ) => {
   const isNumericParam = NUMERIC_PARAMS.has(parameter);
-  if (NUMERIC_COMPARISON_TYPES.has(filterType) && !isNumericParam) {
+  // FORK: properties:<key> also takes numeric comparisons — the operand is
+  // coerced with toFloat64OrNull, so non-numeric values simply don't match.
+  const isPropertyParam = parameter.startsWith("properties:");
+  if (NUMERIC_COMPARISON_TYPES.has(filterType) && !isNumericParam && !isPropertyParam) {
     throw new Error(`${filterType} filters only apply to lat and lon, not "${parameter}"`);
+  }
+  if (isPropertyParam && NUMERIC_COMPARISON_TYPES.has(filterType)) {
+    const invalid = values.find(value => !Number.isFinite(Number(value)));
+    if (invalid !== undefined) {
+      throw new Error(`Invalid numeric value for ${filterType} filter: ${invalid}`);
+    }
   }
   if (STRING_ONLY_TYPES.has(filterType) && isNumericParam) {
     throw new Error(`${filterType} filters do not apply to the numeric parameter "${parameter}"`);
@@ -504,7 +516,13 @@ export function getFilterStatement(
           if (isNaN(numericValue)) {
             throw new Error(`Invalid numeric value for ${filter.type} filter: ${filter.value[0]}`);
           }
-          return `${mapField(getSqlParam(filter.parameter))} ${filterTypeToOperator(filter.type)} ${numericValue}`;
+          // Properties are extracted as String from the JSON column, so coerce to a
+          // number before comparing (ClickHouse rejects String <op> Int). Non-numeric
+          // values become NULL and are excluded by the comparison.
+          const operand = filter.parameter.startsWith("properties:")
+            ? `toFloat64OrNull(${getSqlParam(filter.parameter)})`
+            : mapField(getSqlParam(filter.parameter));
+          return `${operand} ${filterTypeToOperator(filter.type)} ${numericValue}`;
         }
 
         if (filter.type === "starts_with" || filter.type === "ends_with") {

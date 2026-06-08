@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FilterParameter, FilterType } from "@rybbit/shared";
 import { Plus, X } from "lucide-react";
 import { useExtracted } from "next-intl";
-import { filterOperators, filterParameters, usePlaygroundStore } from "../hooks/usePlaygroundStore";
+import { filterOperators, filterParameters, getFilterPrefix, usePlaygroundStore } from "../hooks/usePlaygroundStore";
 
 export function FilterBuilder() {
   const t = useExtracted();
@@ -30,12 +30,19 @@ export function FilterBuilder() {
         <div className="space-y-2">
           {filters.map((filter, index) => {
             const operatorNeedsValue = filter.operator !== "is_null" && filter.operator !== "is_not_null";
+            const prefix = getFilterPrefix(filter.parameter);
+            const prefixKey = prefix ? filter.parameter.slice(prefix.length) : "";
 
             return (
               <div key={index} className="flex items-center gap-2">
                 <Select
-                  value={filter.parameter}
-                  onValueChange={value => updateFilter(index, { ...filter, parameter: value as FilterParameter })}
+                  value={prefix ?? filter.parameter}
+                  onValueChange={value => {
+                    const nextPrefix = getFilterPrefix(value);
+                    // Preserve the existing key when switching between prefixed parameters.
+                    const parameter = nextPrefix ? `${nextPrefix}${prefixKey}` : value;
+                    updateFilter(index, { ...filter, parameter: parameter as FilterParameter });
+                  }}
                 >
                   <SelectTrigger className="w-[170px] h-8 text-xs">
                     <SelectValue placeholder={t("Parameter")} />
@@ -48,6 +55,17 @@ export function FilterBuilder() {
                     ))}
                   </SelectContent>
                 </Select>
+
+                {prefix && (
+                  <Input
+                    value={prefixKey}
+                    onChange={e =>
+                      updateFilter(index, { ...filter, parameter: `${prefix}${e.target.value}` as FilterParameter })
+                    }
+                    placeholder={t("key")}
+                    className="w-[130px] min-w-0 h-8 text-xs"
+                  />
+                )}
 
                 <Select
                   value={filter.operator}

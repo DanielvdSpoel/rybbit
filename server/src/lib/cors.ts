@@ -106,10 +106,15 @@ export function getCorsOptionsForRequest(
   }
 
   if (isPublicCorsPath(getRequestPath(request))) {
+    // Public ingest endpoints (e.g. /api/track) accept any origin. `origin: true`
+    // reflects the specific request Origin (not "*"), so pairing it with
+    // `credentials: true` is spec-valid. Tracking clients may send credentialed
+    // requests; returning Access-Control-Allow-Credentials avoids browsers
+    // blocking them ("expected 'true' in Access-Control-Allow-Credentials").
     return {
       ...commonCorsOptions,
       origin: true,
-      credentials: false,
+      credentials: true,
     };
   }
 

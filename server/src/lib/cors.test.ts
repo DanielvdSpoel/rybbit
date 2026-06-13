@@ -85,7 +85,7 @@ describe("CORS policy", () => {
     }
   });
 
-  it("keeps tracking endpoints permissive without allowing credentials", async () => {
+  it("keeps tracking endpoints permissive and allows credentials (sendBeacon is credentialed)", async () => {
     const app = await buildCorsTestApp({
       NODE_ENV: "production",
       BASE_URL: "https://rybbit.example.com",
@@ -103,7 +103,7 @@ describe("CORS policy", () => {
 
       expect(preflight.statusCode).toBe(204);
       expect(preflight.headers["access-control-allow-origin"]).toBe("https://customer-site.example");
-      expect(preflight.headers["access-control-allow-credentials"]).toBeUndefined();
+      expect(preflight.headers["access-control-allow-credentials"]).toBe("true");
 
       const actual = await app.inject({
         method: "POST",
@@ -115,7 +115,7 @@ describe("CORS policy", () => {
 
       expect(actual.statusCode).toBe(200);
       expect(actual.headers["access-control-allow-origin"]).toBe("https://customer-site.example");
-      expect(actual.headers["access-control-allow-credentials"]).toBeUndefined();
+      expect(actual.headers["access-control-allow-credentials"]).toBe("true");
     } finally {
       await app.close();
     }
@@ -138,7 +138,7 @@ describe("CORS policy", () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.headers["access-control-allow-origin"]).toBe("https://self-hosted.example");
-      expect(res.headers["access-control-allow-credentials"]).toBeUndefined();
+      expect(res.headers["access-control-allow-credentials"]).toBe("true");
     } finally {
       await app.close();
     }
@@ -161,7 +161,7 @@ describe("CORS policy", () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.headers["access-control-allow-origin"]).toBe("https://docs.rybbit.com");
-      expect(res.headers["access-control-allow-credentials"]).toBeUndefined();
+      expect(res.headers["access-control-allow-credentials"]).toBe("true");
     } finally {
       await app.close();
     }

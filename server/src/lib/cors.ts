@@ -116,15 +116,19 @@ export function getCorsOptionsForRequest(request: FastifyRequest, env: NodeJS.Pr
   }
 
   if (isPublicCorsPath(getRequestPath(request))) {
-    // These paths are reachable from any origin (e.g. embedded widgets), but they
-    // are also hit by the authenticated dashboard, which sends cookies. Reflect any
-    // origin, but only allow credentials for trusted origins so the dashboard's
-    // credentialed requests get `Access-Control-Allow-Credentials: true` while
-    // arbitrary embed origins stay credential-less.
+    // These paths are reachable from any origin (e.g. embedded widgets and
+    // tracking SDKs). `origin: true` reflects the specific request Origin (not
+    // "*"), so pairing it with `credentials: true` is spec-valid.
+    //
+    // FORK: upstream only allows credentials for trusted origins here. That
+    // breaks @rybbit/js, which sends pageviews via navigator.sendBeacon — always
+    // credentialed — from arbitrary customer origins; without
+    // `Access-Control-Allow-Credentials: true` every real browser beacon is
+    // CORS-blocked. Keep this `true` when merging upstream.
     return {
       ...commonCorsOptions,
       origin: true,
-      credentials: getTrustedCorsOrigins(env).includes(requestOrigin),
+      credentials: true,
     };
   }
 

@@ -46,6 +46,14 @@ export interface FilterStatementOptions {
 
 const DEFAULT_SESSION_LEVEL_PARAMS: FilterParameter[] = ["event_name", "channel"];
 
+/**
+ * Whether `parameter` is in `list`. FORK: an entry ending in ":" (e.g.
+ * "properties:") matches every parameter with that prefix, so per-event keyed
+ * filters can be routed as a family without listing each key.
+ */
+export const isParamInList = (list: readonly FilterParameter[], parameter: FilterParameter): boolean =>
+  list.some(entry => entry === parameter || (entry.endsWith(":") && parameter.startsWith(entry)));
+
 const filterTypeToOperator = (type: FilterType) => {
   switch (type) {
     case "equals":
@@ -237,6 +245,27 @@ const STRING_ONLY_TYPES: ReadonlySet<FilterType> = new Set<FilterType>([
   "not_regex",
 ]);
 
+/** `<operand> <op> <number>` for greater_than / less_than(_or_equal) filters. */
+const buildNumericComparison = (
+  parameter: FilterParameter,
+  filterType: FilterType,
+  value: string | number | undefined,
+  mapField: (expression: string) => string
+): string => {
+  const numericValue = Number(value);
+  if (isNaN(numericValue)) {
+    throw new Error(`Invalid numeric value for ${filterType} filter: ${value}`);
+  }
+  // Properties are extracted as String from the JSON column, so coerce to a
+  // number before comparing (ClickHouse rejects String <op> Int, and a string
+  // compare would order '10' before '5'). Non-numeric values become NULL and
+  // are excluded by the comparison.
+  const operand = parameter.startsWith("properties:")
+    ? `toFloat64OrNull(${getSqlParam(parameter)})`
+    : mapField(getSqlParam(parameter));
+  return `${operand} ${filterTypeToOperator(filterType)} ${numericValue}`;
+};
+
 /** Throws when a filter's operator or values cannot apply to its parameter's type. */
 const assertFilterTypeCompatible = (
   parameter: FilterParameter,
@@ -376,7 +405,9 @@ export function getFilterStatement(
     const condition =
       positiveFilterType === "is_null" || positiveFilterType === "is_not_null"
         ? buildNullCheckCondition(param, positiveFilterType, expression => expression)
-        : buildStringFilterCondition(getSqlParam(param), positiveFilterType, values);
+        : NUMERIC_COMPARISON_TYPES.has(positiveFilterType)
+          ? buildNumericComparison(param, positiveFilterType, values[0], expression => expression)
+          : buildStringFilterCondition(getSqlParam(param), positiveFilterType, values);
     const membershipOperator = negatedSessionFilterTypes[filterType] ? "NOT IN" : "IN";
 
     const finalWhere = whereClause ? `WHERE ${whereClause} AND ${condition}` : `WHERE ${condition}`;
@@ -417,7 +448,7 @@ export function getFilterStatement(
 
         // Handle session-level filters (configurable via options).
         // Most parameters match sessions containing an event; channel uses the session's first attributed value.
-        if (sessionLevelParams.includes(filter.parameter)) {
+        if (isParamInList(sessionLevelParams, filter.parameter)) {
           if (filter.parameter === "channel") {
             return buildSessionChannelSubquery(filter.type, filter.value);
           }
@@ -512,17 +543,7 @@ export function getFilterStatement(
           filter.type === "greater_than_or_equal" ||
           filter.type === "less_than_or_equal"
         ) {
-          const numericValue = Number(filter.value[0]);
-          if (isNaN(numericValue)) {
-            throw new Error(`Invalid numeric value for ${filter.type} filter: ${filter.value[0]}`);
-          }
-          // Properties are extracted as String from the JSON column, so coerce to a
-          // number before comparing (ClickHouse rejects String <op> Int). Non-numeric
-          // values become NULL and are excluded by the comparison.
-          const operand = filter.parameter.startsWith("properties:")
-            ? `toFloat64OrNull(${getSqlParam(filter.parameter)})`
-            : mapField(getSqlParam(filter.parameter));
-          return `${operand} ${filterTypeToOperator(filter.type)} ${numericValue}`;
+          return buildNumericComparison(filter.parameter, filter.type, filter.value[0], mapField);
         }
 
         if (filter.type === "starts_with" || filter.type === "ends_with") {

@@ -1,17 +1,23 @@
 import { FilterParameter } from "../types.js";
-import { getFilterStatement } from "./getFilterStatement.js";
+import { getFilterStatement, isParamInList } from "./getFilterStatement.js";
 import { validateFilters } from "./query-validation.js";
 import { SESSION_REFERRER_AGG, SESSION_UTM_AGG_BY_PARAMETER } from "./sessionAttribution.js";
 
 // These fields are event-scoped rather than stable session attributes. Session
 // reports include a session when any event matches them; channel has its own
 // acquisition aggregation inside getFilterStatement.
+// FORK: "properties:" and "url_param:" are prefix entries (see isParamInList)
+// covering every properties:<key> / url_param:<key> filter. They read the raw
+// `props` / `url_parameters` columns, which the per-session aggregate below
+// does not project, so they must filter through the events subquery.
 const SESSION_EVENT_LEVEL_PARAMS: FilterParameter[] = [
   "event_name",
   "pathname",
   "page_title",
   "querystring",
   "channel",
+  "properties:",
+  "url_param:",
 ];
 
 // Session aggregates expose UTM values as aliases instead of Map lookups.
@@ -73,10 +79,10 @@ export const buildFilteredSessionsCTE = (
   if (!filterStatement) return null;
 
   const aggregates = new Set<string>();
-  const subqueryOnlyParams = new Set<FilterParameter>([...SESSION_EVENT_LEVEL_PARAMS, "entry_page", "exit_page"]);
+  const subqueryOnlyParams: FilterParameter[] = [...SESSION_EVENT_LEVEL_PARAMS, "entry_page", "exit_page"];
 
   for (const { parameter } of parsedFilters) {
-    if (subqueryOnlyParams.has(parameter)) continue;
+    if (isParamInList(subqueryOnlyParams, parameter)) continue;
 
     if (parameter === "user_id") {
       aggregates.add("argMax(user_id, timestamp) AS user_id");

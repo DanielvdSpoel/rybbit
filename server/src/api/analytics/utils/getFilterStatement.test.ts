@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { filterParamError, getFilterStatement, getSqlParam } from "./getFilterStatement.js";
+import { filterParamError, getFilterStatement, getSqlParam, isParamInList } from "./getFilterStatement.js";
 import { FilterParameter } from "../types.js";
 
 describe("getSqlParam", () => {
@@ -818,5 +818,57 @@ describe("filterParamError", () => {
       /needs at least one value/
     );
     expect(filterParamError(JSON.stringify([{ parameter: "pathname", type: "is_null", value: [] }]))).toBeNull();
+  });
+});
+
+describe("isParamInList", () => {
+  it("matches exact entries", () => {
+    expect(isParamInList(["event_name", "channel"], "event_name")).toBe(true);
+    expect(isParamInList(["event_name", "channel"], "pathname")).toBe(false);
+  });
+
+  it("treats entries ending in ':' as prefixes", () => {
+    expect(isParamInList(["properties:"], "properties:vendor_id")).toBe(true);
+    expect(isParamInList(["url_param:"], "url_param:campaign_id")).toBe(true);
+    expect(isParamInList(["properties:"], "url_param:campaign_id")).toBe(false);
+  });
+
+  it("does not treat exact entries as prefixes", () => {
+    expect(isParamInList(["properties:vendor_id"], "properties:vendor_id_2")).toBe(false);
+    expect(isParamInList(["utm_source"], "utm_source_x" as FilterParameter)).toBe(false);
+  });
+});
+
+describe("getFilterStatement with a properties: session-level prefix", () => {
+  const options = { sessionLevelParams: ["properties:"] as FilterParameter[] };
+
+  it("routes every properties: key through a session subquery", () => {
+    const sql = getFilterStatement(
+      JSON.stringify([{ parameter: "properties:vendor_id", type: "equals", value: ["24"] }]),
+      1,
+      "",
+      options
+    );
+
+    expect(sql).toContain("session_id IN (");
+    expect(sql).toContain("JSONExtractString(toString(props), 'vendor_id') = '24'");
+  });
+
+  it("compares numerically inside the subquery instead of as strings", () => {
+    const sql = getFilterStatement(
+      JSON.stringify([{ parameter: "properties:results_count", type: "less_than_or_equal", value: ["3"] }]),
+      1,
+      "",
+      options
+    );
+
+    expect(sql).toContain("toFloat64OrNull(JSONExtractString(toString(props), 'results_count')) <= 3");
+    expect(sql).not.toContain("<= '3'");
+  });
+
+  it("rejects a non-numeric value for a numeric comparison", () => {
+    const filters = JSON.stringify([{ parameter: "properties:results_count", type: "greater_than", value: ["many"] }]);
+
+    expect(() => getFilterStatement(filters, 1, "", options)).toThrow("Invalid numeric value");
   });
 });

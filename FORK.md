@@ -66,6 +66,16 @@ leaves `backup/deploy-<old-tag>` behind so nothing is lost.
 
 ## Deployment notes (K8s repo)
 
+- **upstream master 2026-11-18 (`6914a878b`, security bumps = 2.9.3 and more):**
+  - next 16.4.6 (image-optimizer RCE, SSRF, middleware bypass), fastify 5.12.8
+    (malformed-URL auth bypass), @fastify/static 10.1.11 (path traversal), MCP SDK
+    1.32.2, better-auth 1.7.25 (2.9.3 itself keeps 1.7.3). `@better-auth/sso` dropped.
+  - Also brings raw event export (`/export/events`, Site Settings → Export).
+  - No migrations, no new env, Dockerfiles unchanged.
+  - Upstream `v2.9.3` lives on `release/2.9` (older than our base), so the fork
+    follows master instead. Later master commits (TypeScript 7, test pruning) were
+    left for the next upgrade.
+
 - **upstream master 2026-11-04 (`428820476`, after 2.9.2; includes 2.9.2's Node pin):**
   - Images are now built from the pnpm workspace; `docker-publish.yml` is
     unchanged, but the Dockerfiles moved to `pnpm` — check the build succeeds.

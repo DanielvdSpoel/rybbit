@@ -66,6 +66,22 @@ leaves `backup/deploy-<old-tag>` behind so nothing is lost.
 
 ## Deployment notes (K8s repo)
 
+- **upstream master 2026-11-18 (`472f0c831`, includes 2.9.3's security fixes):**
+  - Version strings still say 2.9.1: upstream cuts 2.9.2/2.9.3 on `release/2.9`
+    as backports, while master (which the fork follows) keeps 2.9.1 until the
+    next minor. Master has the same fixes with newer versions.
+  - Security: next 16.4.6 (image-optimizer RCE, SSRF, middleware bypass), fastify
+    5.12.8 (malformed-URL auth bypass), @fastify/static 10.1.11 (path traversal),
+    MCP SDK 1.32.2, better-auth 1.7.25. `@better-auth/sso` dropped.
+  - Bot detection: generic UA words ("news" etc.) no longer convict in-app
+    browsers on their own; DuckDuckGo browser no longer labelled a bot. New
+    rules run in shadow only (record to `bot_observations`, never divert).
+  - Also: raw event export (`/export/events`, Site Settings → Export), login
+    redirect fix, self-serve DPA (cloud), TypeScript 7 (shared tsconfig now
+    `moduleResolution: bundler`), upstream test pruning (the fork's
+    `s3StorageService.test.ts` follows it but keeps its S3_REGION test).
+  - No migrations, no new env, Dockerfiles unchanged.
+
 - **upstream master 2026-11-04 (`428820476`, after 2.9.2; includes 2.9.2's Node pin):**
   - Images are now built from the pnpm workspace; `docker-publish.yml` is
     unchanged, but the Dockerfiles moved to `pnpm` — check the build succeeds.
